@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "source": {
+    "github": {
+      "owners": [
+        { "name": "example-user", "kind": "user", "minVisible": 0 },
+        { "name": "example-organization", "kind": "org", "minVisible": 0 }
+      ],
+      "excludeForks": true,
+      "exclude": ["example-organization/oversized-demo"]
+    }
+  },
+  "destination": {
+    "gitlab": { "visibility": "private" }
+  },
+  "sync": { "activityHours": 48 }
+}

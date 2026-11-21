@@ -1,0 +1,26 @@
+# Example workflow for a *private* caller repository. Replace the action SHA.
+name: Verified Git backup
+on:
+  schedule:
+    - cron: "37 04 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: verified-git-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: example-publisher/gickup-guard@REPLACE_WITH_FULL_COMMIT_SHA
+        with:
+          config: github-backup/config.json
+          github-token: ${{ secrets.GH_SOURCE_TOKEN }}
+          gitlab-token: ${{ secrets.GITLAB_TOKEN }}
+          gitlab-group: ${{ vars.GITLAB_BACKUP_GROUP }}

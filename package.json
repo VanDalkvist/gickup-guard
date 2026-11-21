@@ -1,0 +1,15 @@
+{
+  "name": "gickup-guard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Incremental, verified GitHub to GitLab backups using Gickup",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.cjs"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "engines": { "node": ">=24" }
+}

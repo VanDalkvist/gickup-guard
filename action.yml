@@ -1,0 +1,59 @@
+name: Gickup Guard
+description: Incremental GitHub to GitLab backups with before-and-after Git SHA verification
+author: Gickup Guard contributors
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  config:
+    description: Path to JSON configuration file in the caller repository
+    required: true
+  github-token:
+    description: GitHub personal access token with access to all configured repositories
+    required: true
+  gitlab-token:
+    description: GitLab API token with access to the private backup namespace
+    required: true
+  gitlab-group:
+    description: Private root group path on GitLab for organization backups
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore unfinished backup queue
+      shell: bash
+      env:
+        GG_STATE_TOKEN: ${{ github.token }}
+      run: node "$GITHUB_ACTION_PATH/dist/index.js" restore
+
+    - name: Detect, synchronize and verify backups
+      id: backup
+      shell: bash
+      env:
+        GG_GITHUB_TOKEN: ${{ inputs.github-token }}
+        GG_GITLAB_TOKEN: ${{ inputs.gitlab-token }}
+        GG_GITLAB_GROUP: ${{ inputs.gitlab-group }}
+        GG_CONFIG: ${{ inputs.config }}
+      run: node "$GITHUB_ACTION_PATH/dist/index.js" run
+
+    - name: Persist retry queue
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gickup-guard-pending
+        path: ${{ github.workspace }}/.gickup-guard/pending.json
+        if-no-files-found: error
+        retention-days: 90
+
+    - name: Save detailed private run report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gickup-guard-report
+        path: |
+          ${{ github.workspace }}/.gickup-guard/plan.json
+          ${{ github.workspace }}/.gickup-guard/result.json
+        if-no-files-found: warn
+        retention-days: 30
