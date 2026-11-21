@@ -1,10 +1,38 @@
 # Gickup Guard
 
-**Verified incremental GitHub → GitLab backups powered by [Gickup](https://github.com/cooperspencer/gickup).**
+**Don't just run backups. Verify they actually synced.**
 
-Gickup Guard first checks what changed, transfers only sources whose Git refs are missing or different at the destination, and verifies those original refs after the transfer. If a backup is incomplete, the next invocation retries it even after the normal activity window has elapsed.
+Back up only changed GitHub repositories to private GitLab mirrors, **verify branches and tags by Git SHA**, and automatically retry incomplete transfers. Powered by [Gickup](https://github.com/cooperspencer/gickup); runs in GitHub Actions with no separate server or database.
 
-This is intentionally **not** a generic backup engine or an alternative to Gickup. v0.1 supports one personal GitHub account plus optional GitHub organizations, with private GitLab mirrors.
+## Why Gickup Guard?
+
+A successful backup command isn't the same as a verified backup. A transient API error, missing project, or incomplete Git push can leave a mirror behind while the next scheduled run moves on.
+
+Gickup Guard closes that gap for **developers and small teams using GitLab as a secondary home for their GitHub repositories**:
+
+| What it does | Why it matters |
+| --- | --- |
+| **Check before transfer** | Skip repositories whose source branch/tag refs already match GitLab. |
+| **Sync only mismatches** | Avoid repeatedly transferring everything in your configured activity window. |
+| **Verify after transfer** | Mark the job successful only when the selected source refs are confirmed at their captured SHA (or a verified newer source SHA). |
+| **Retry incomplete backups** | Keep failed repositories in a persistent queue even after their last push becomes older than the activity window. |
+| **Stay private** | Keep GitHub/GitLab tokens, repository inventories, reports, and retry artifacts in your own private caller repository. |
+
+### One small, verifiable pipeline
+
+```text
+Discover recent + unfinished repos
+          ↓
+Snapshot Git refs → Compare GitLab
+          ↓
+Gickup transfers only mismatches
+          ↓
+Verify captured SHA → Success or retry
+```
+
+**What a green run means:** all selected Git refs were matched or verified in GitLab for that run. **It does not mean** every historical repository was audited, all Git objects were restore-tested, or GitHub issues, releases, LFS, and wikis were backed up. Those are deliberately outside this Action's scope.
+
+**Scope:** GitHub.com sources (one personal account and optional organizations) → private GitLab.com mirrors. This is a Git-specific safety layer around Gickup, **not** a generic backup engine or a replacement for [Rclone](https://rclone.org/) / [Restic](https://restic.net/).
 
 ## Quick start
 
