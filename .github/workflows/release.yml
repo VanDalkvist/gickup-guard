@@ -1,0 +1,93 @@
+name: Publish Gickup Guard release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Publish the initial release when this workflow is first added.
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version in package.json (for example v0.2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gickup-guard-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'VanDalkvist/gickup-guard'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Test public Action without real accounts
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm test
+          git diff --exit-code -- dist/
+
+      - name: Publish versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="v$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$REQUESTED_TAG"
+          fi
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected semantic version such as v0.1.0"
+            exit 1
+          fi
+          CURRENT="v$(node -p "require('./package.json').version")"
+          if [[ "$VERSION" != "$CURRENT" ]]; then
+            echo "::error::Tag $VERSION does not match package.json version $CURRENT"
+            exit 1
+          fi
+          NOTES="docs/releases/$VERSION.md"
+          if [[ ! -f "$NOTES" ]]; then
+            echo "::error::Missing release notes: $NOTES"
+            exit 1
+          fi
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $VERSION is already published"
+            exit 0
+          fi
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION — Verified incremental Git backups" \
+            --notes-file "$NOTES" \
+            --latest
+
+      - name: Set public repository description and topics where permitted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh repo edit "$GITHUB_REPOSITORY" \
+              --description "Verify GitHub-to-GitLab mirrors by SHA. Sync only changed repos with Gickup and retry incomplete backups." \
+              --homepage "https://github.com/VanDalkvist/gickup-guard#readme" \
+              --add-topic "github-actions,gitlab,backup,git-mirroring,gickup,typescript"; then
+            echo "Repository About and Topics updated." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Repository metadata needs administration access; this does not affect the GitHub Release."
+            echo "About and Topics require owner-level editing: see docs/marketplace.md." >> "$GITHUB_STEP_SUMMARY"
+          fi
