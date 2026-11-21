@@ -1,54 +1,47 @@
 # Gickup Guard
 
-**Don't just run backups. Verify they actually synced.**
+**Know when your GitHub-to-GitLab backup has caught up.**
 
-Back up only changed GitHub repositories to private GitLab mirrors, **verify branches and tags by Git SHA**, and automatically retry incomplete transfers. Powered by [Gickup](https://github.com/cooperspencer/gickup); runs in GitHub Actions with no separate server or database.
+Gickup Guard is a GitHub Action that checks recently changed Git repositories, copies only missing or outdated refs to GitLab using [Gickup](https://github.com/cooperspencer/gickup), and verifies the result by Git SHA. Failed backups stay on a retry list, even after the normal activity window expires.
 
-## Why Gickup Guard?
+It runs on GitHub Actions. You do not need to run a server or maintain a database.
 
-A successful backup command isn't the same as a verified backup. A transient API error, missing project, or incomplete Git push can leave a mirror behind while the next scheduled run moves on.
+## Who it's for
 
-Gickup Guard closes that gap for **developers and small teams using GitLab as a secondary home for their GitHub repositories**:
+You keep code on GitHub and want a second copy on GitLab. You might have repositories across a personal account and several organizations. A scheduled backup command can finish without telling you which mirrors are still behind.
 
-| What it does | Why it matters |
+Gickup Guard gives each run a clear result: **which repositories were already current, which needed copying, and which still need another attempt**.
+
+## What happens on each run
+
+| Step | What happens |
 | --- | --- |
-| **Check before transfer** | Skip repositories whose source branch/tag refs already match GitLab. |
-| **Sync only mismatches** | Avoid repeatedly transferring everything in your configured activity window. |
-| **Verify after transfer** | Mark the job successful only when the selected source refs are confirmed at their captured SHA (or a verified newer source SHA). |
-| **Retry incomplete backups** | Keep failed repositories in a persistent queue even after their last push becomes older than the activity window. |
-| **Stay private** | Keep GitHub/GitLab tokens, repository inventories, reports, and retry artifacts in your own private caller repository. |
+| **Check** | Read Git refs for repositories pushed within your activity window and for previous failures. Compare their branch and tag SHAs with GitLab. |
+| **Copy** | Ask Gickup to transfer only repositories with missing or different refs. Repositories that already match are skipped. |
+| **Verify** | Recheck the GitLab refs against the snapshot captured before the transfer. A newer ref is accepted only when it also matches the current GitHub source. |
+| **Retry** | Keep unfinished repositories in the private caller repository's Actions artifacts for the next run, even if they are now older than the activity window. |
 
-### One small, verifiable pipeline
+A passing run means **all selected Git refs were confirmed** at the destination. A failed run identifies the unresolved repositories and retains them for the next attempt.
 
-```text
-Discover recent + unfinished repos
-          ↓
-Snapshot Git refs → Compare GitLab
-          ↓
-Gickup transfers only mismatches
-          ↓
-Verify captured SHA → Success or retry
-```
+### The limit of that guarantee
 
-**What a green run means:** all selected Git refs were matched or verified in GitLab for that run. **It does not mean** every historical repository was audited, all Git objects were restore-tested, or GitHub issues, releases, LFS, and wikis were backed up. Those are deliberately outside this Action's scope.
+The Action compares Git branch/tag references, including annotated tag targets. It does **not** test restoration of arbitrary Git objects, audit inactive repositories outside the activity window, or back up GitHub Issues, pull requests, releases, Git LFS, or wikis. Extra historical refs kept by GitLab are allowed. Its retry state is retained for 90 days; a long-disabled workflow can lose that queue.
 
-**Scope:** GitHub.com sources (one personal account and optional organizations) → private GitLab.com mirrors. This is a Git-specific safety layer around Gickup, **not** a generic backup engine or a replacement for [Rclone](https://rclone.org/) / [Restic](https://restic.net/).
+## Get started
 
-## Quick start
+Use a **private GitHub repository** to run backups. It keeps your tokens, repo inventory, logs, and retry reports away from the public Action's repository.
 
-1. Create a **private** repository for your backup job. The GitHub Actions artifacts and logs will contain repository names and reference data from your sources.
-2. Copy [examples/config.json](examples/config.json) into `github-backup/config.json`, replacing the fabricated names with your own.
-3. Add `GH_SOURCE_TOKEN` (classic GitHub PAT with `repo` scope and organizational access) and `GITLAB_TOKEN` (GitLab token with API access) as repository Actions **secrets**. Set `GITLAB_BACKUP_GROUP` to a private GitLab root group path in repository Actions **variables**; create that root group first.
-4. Copy [examples/backup.yml](examples/backup.yml) to `.github/workflows/backup.yml`. **Pin** `uses:` to a reviewed full commit SHA of this Action, not the placeholder.
-5. Run the workflow manually. The next run will restore its retry backlog from the preceding artifact. Scheduled runs use the same code path.
+1. Copy [the example config](examples/config.json) to \`github-backup/config.json\` in your private repository. Change the fictional account names to your own.
+2. Add \`GH_SOURCE_TOKEN\` and \`GITLAB_TOKEN\` to your private repository's **Actions secrets**. Give the GitHub token access to the configured repositories and the GitLab token API access to your private destination.
+3. Create a private GitLab root group for organization mirrors. Store its path as the **Actions variable** \`GITLAB_BACKUP_GROUP\`.
+4. Copy [the example workflow](examples/backup.yml) to \`.github/workflows/backup.yml\`. Replace its placeholder Action reference with a reviewed [release](https://github.com/VanDalkvist/gickup-guard/releases) tag or, for stronger version pinning, a full commit SHA.
+5. Start the workflow manually in the private repository's **Actions** tab. Future scheduled runs use the same configuration.
 
-The reusable Action requires `actions: read` for its own artifact lookup and `contents: read` for checkout. It runs on GitHub-hosted `ubuntu-latest` runners with Node.js 24, Docker, Git and `unzip`.
+**Needs:** a GitHub-hosted \`ubuntu-latest\` runner with Docker, Git, unzip and Node.js 24; \`actions: read\` and \`contents: read\` workflow permissions. A classic GitHub PAT with \`repo\` scope is **not read-only**, so use the narrowest workable credential and review organization access.
 
-## Configuration
+### Example configuration
 
-[Example (only fictional entities)](examples/config.json):
-
-```json
+\`\`\`json
 {
   "version": 1,
   "source": {
@@ -64,42 +57,43 @@ The reusable Action requires `actions: read` for its own artifact lookup and `co
   "destination": { "gitlab": { "visibility": "private" } },
   "sync": { "activityHours": 48 }
 }
-```
+\`\`\`
 
-- `kind: user` is the personal account named by the GitHub source PAT, stored in the GitLab account named by the GitLab token. Exactly one user entry is required.
-- `kind: org` is stored under `<GITLAB_BACKUP_GROUP>/<lowercase-org-name>/<repo-name>` in a private subgroup.
-- `minVisible` fails closed if the source PAT unexpectedly sees fewer repositories than configured; `0` disables this protection for that owner.
-- `exclude` contains **full** `owner/repo` names. Forks are always excluded.
-- `activityHours` chooses which repos are inspected, plus any previously unsuccessful repos irrespective of age. Inactive clean repositories are not scanned.
+The example uses **fictional identifiers** and contains no credentials.
 
-## How it works
+- **\`owners\`** — exactly one \`kind: user\`, plus optional \`kind: org\` entries. The personal account maps to the GitLab account in \`GITLAB_TOKEN\`; organizations map to private subgroups of \`GITLAB_BACKUP_GROUP\`.
+- **\`minVisible\`** — fail if the GitHub token unexpectedly sees fewer repositories for that owner. Set \`0\` to disable this check.
+- **\`exclude\`** — omit specific repositories by full \`owner/repo\` name. Forks are always excluded.
+- **\`activityHours\`** — inspect recently pushed repositories plus anything left unfinished in previous runs. This isn't a full inventory audit.
 
-1. **Preflight** lists metadata for configured owners; it reads Git SHA refs only for recently pushed repositories and previously unfinished ones. It snapshots refs and compares them with the corresponding private GitLab projects. Already matched repositories are not transferred.
-2. **Gickup** receives an exact include-list for each owner with pending work. If a repository name is ambiguous across owners, that source fails closed and remains pending. GitLab destinations are private, `force: false`; Gickup must not delete existing GitLab repositories.
-3. **Postflight** compares the destination against the refs captured in step 1. Concurrent new pushes are not required retroactively. Persistent errors, missing refs and failed checks leave the Action red, with retry names carried forward to the next run.
+For the complete workflow, see [\`examples/backup.yml\`](examples/backup.yml).
 
-The retry queue is kept in `gickup-guard-pending` **Actions artifacts in the caller's repository** for 90 days; full reports are retained for 30 days. This uses artifact storage rather than a separate service or database. It cannot guarantee continuity if workflows are disabled beyond retention or if artifact access is revoked.
+## What Gickup Guard adds to Gickup
 
-**Guarantee boundary:** compares exact branch/tag refs (including annotated tags' peeled refs), not the existence of every historical Git object, Git LFS data, releases, issues, wikis, or restoration of arbitrary objects. Retained GitLab-only refs do not fail the test. This workflow does not audit older unrelated repositories outside the activity window and pending backlog.
+[Gickup](https://github.com/cooperspencer/gickup) handles cloning and mirroring Git repositories. Gickup Guard adds **before/after ref checks** and **a durable retry list** around Gickup's existing transfer machinery. It does not attempt to replace Gickup or build a general-purpose backup framework.
 
-## Privacy and security
+The public Action contains only TypeScript source, generated JavaScript, synthetic tests, documentation, and fictional examples. The backup job's reports and queue are written to **the caller's** GitHub Actions artifacts (\`gickup-guard-report\` retained 30 days; \`gickup-guard-pending\` retained 90 days). No backup state is uploaded to this public repository.
 
-- The public repository contains **only source code, synthetic tests, and fictional examples**. Never copy private configuration, token values, private backup reports or real repository inventories here.
-- Run backups in a **private consumer repository**. Artifacts and logs are uploaded only to that consumer's Actions, not to this Action repository.
-- Credentials are passed as masked Action inputs and process environment variables. Temporary Gickup configurations contain environment-variable references, not credential values; they are removed after execution.
-- Preflight checks destination project privacy and group ownership before running Gickup. Gickup is pinned to a specific container digest.
-- This Action's runtime calls `https://api.github.com` and `https://gitlab.com`. Third-party Git hosts and self-hosted GitLab are not supported in v0.1.
-- Review scopes carefully. A classic GitHub PAT with `repo` scope is powerful and **not read-only**; use a dedicated credential where practical.
+### Security boundaries
 
-## Development
+- GitLab destinations must be private; the Action checks project/group privacy before transfer.
+- Gickup runs with \`force: false\`. The Action does not deliberately delete GitHub or GitLab repositories.
+- Tokens are supplied as Action inputs and passed into the runner as environment variables. Do not commit them to configuration files.
+- Gickup runs as an external Docker image pinned by digest.
+- v0.1 supports **GitHub.com → GitLab.com**. Self-hosted instances, other Git providers, full object verification, and other backup formats are out of scope.
+- GitHub Actions artifacts can expose repository names and refs; keep the caller repository private.
 
-```bash
+## Develop
+
+\`\`\`bash
 npm install
 npm test
-```
+\`\`\`
 
-Built JavaScript is committed to `dist/` because GitHub Actions must run the Action without requiring an `npm install` in the calling repository. The CI verifies that `dist/` is synchronized with `src/` and tests use **mocked synthetic providers**, not real personal data or credentials.
+The Action's TypeScript builds to checked-in \`dist/\`. CI tests it with **synthetic mocks** and checks that the generated JavaScript matches the source. No real users, repository inventories, or credentials are used in tests.
+
+See [product positioning and unvalidated assumptions](docs/positioning.md) for the reasoning behind this narrow scope.
 
 ## License
 
-MIT. Gickup is an independently maintained project, invoked as an external Docker image.
+MIT. Gickup is independently maintained and runs as an external Docker image.

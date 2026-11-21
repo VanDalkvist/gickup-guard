@@ -1,6 +1,6 @@
 name: Gickup Guard
-description: Verify GitHub-to-GitLab backups by SHA, sync only mismatches, and retry incomplete transfers
-author: Gickup Guard contributors
+description: Verify GitHub-to-GitLab mirrors by SHA. Sync only changed repos with Gickup and retry incomplete backups.
+author: VanDalkvist
 branding:
   icon: shield
   color: blue
