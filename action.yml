@@ -1,5 +1,5 @@
 name: Gickup Guard
-description: Incremental GitHub to GitLab backups with before-and-after Git SHA verification
+description: Verify GitHub-to-GitLab backups by SHA, sync only mismatches, and retry incomplete transfers
 author: Gickup Guard contributors
 branding:
   icon: shield
