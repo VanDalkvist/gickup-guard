@@ -1,11 +1,6 @@
 name: Publish Gickup Guard release
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Publish the initial release when this workflow is first added.
-      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       tag:
